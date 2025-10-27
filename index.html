@@ -7,8 +7,8 @@
   <title>HighTimer — Dab Countdown</title>
   <style>
     /* ==========================
-       HighTimer — ULTRA-CLEAN MOBILE LAYOUT
-       One-column flow, tight spacing, safe-area aware, big tap targets
+       HighTimer — ULTRA-CLEAN MOBILE LAYOUT (v3)
+       One-column flow • iPhone-safe • custom presets row • synced flash pulses
        ========================== */
     :root{
       --bg:#0b0f0c;
@@ -49,7 +49,7 @@
     .icon-btn svg{ width:20px; height:20px }
 
     /* Page container */
-    .container{ width:var(--container-w); margin:0 auto; padding:10px 12px calc(90px + var(--safe-b)); /* bottom space for controls */ }
+    .container{ width:var(--container-w); margin:0 auto; padding:10px 12px calc(90px + var(--safe-b)); }
 
     /* Cards */
     .card{ background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03)); border:1px solid rgba(255,255,255,.12);
@@ -72,10 +72,11 @@
     .btn{ appearance:none; border:none; border-radius:12px; min-height:var(--tap); flex:1 1 0; font-weight:900; font-size:1.05rem; cursor:pointer }
     .btn.primary{ background:linear-gradient(180deg, var(--accent), var(--accent-2)); color:#04130a }
     .btn.ghost{ background:rgba(255,255,255,.08); color:var(--text); border:1px solid rgba(255,255,255,.14) }
+    .btn.danger{ background:linear-gradient(180deg, #ffb3b3, var(--warning)); color:#2a0000 }
 
     /* Sections */
     .section{ margin-top:12px }
-    .section h3{ margin:0 2px 8px; font-size:1rem; color:var(--muted); font-weight:800 }
+    .section h3{ margin:0 2px 8px; font-size:1rem; color:var(--muted); font-weight:800; display:flex; align-items:center; gap:8px }
 
     /* Chips */
     .chips{ display:flex; gap:10px; overflow:auto; -webkit-overflow-scrolling:touch; padding:2px 2px 8px }
@@ -83,6 +84,7 @@
       font-weight:800; min-height:44px; display:flex; align-items:center; gap:8px }
     .chip .tiny{ font-size:.82rem; color:var(--muted) }
     .chip.active{ outline:2px solid var(--accent); background:rgba(87,255,154,.12) }
+    .chip.delete-candidate{ outline:2px solid var(--warning); background:rgba(255,92,92,.12) }
 
     /* Custom inputs */
     .custom{ display:flex; gap:8px; flex-wrap:wrap; align-items:center }
@@ -90,23 +92,15 @@
     .num input{ width:70px; background:transparent; border:none; color:var(--text); font-weight:800; font-size:1.2rem; text-align:center; outline:none }
     .muted{ color:var(--muted); font-size:.95rem }
 
-    /* Collapsible facts (no overlay) */
+    /* Collapsible facts */
     details.facts{ margin-top:12px }
-    details.facts > summary{ list-style:none; cursor:pointer; padding:10px 12px; border-radius:12px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.14); font-weight:800 }
-    details.facts[open] > summary{ background:rgba(255,255,255,.1) }
-    .facts-wrap{ margin-top:10px; display:grid; gap:8px }
-    .fact{ background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.12); padding:10px; border-radius:12px; line-height:1.32 }
+    details.facts > summary{ list-style:none; cursor:pointer; padding:12px 14px; border-radius:12px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.14); font-weight:800; position:sticky; top:0; z-index:1; backdrop-filter:blur(10px) }
+    details.facts[open] > summary{ background:rgba(255,255,255,.1); border-bottom-left-radius:0; border-bottom-right-radius:0 }
+    .facts-wrap{ margin-top:0; max-height:40vh; overflow:auto; -webkit-overflow-scrolling:touch; padding:10px 8px 12px; display:grid; gap:10px; border:1px solid rgba(255,255,255,.14); border-top:none; border-bottom-left-radius:12px; border-bottom-right-radius:12px; background:rgba(255,255,255,.04) }
+    .fact{ background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.12); padding:12px; border-radius:10px; line-height:1.4; font-size:.98rem }
 
-    /* Toasts */
-    .toasts{ position:fixed; left:50%; transform:translateX(-50%); bottom:calc(100px + var(--safe-b)); display:grid; gap:10px; z-index:80 }
-    .toast{ background:rgba(20,24,22,.98); color:var(--text); border:1px solid rgba(255,255,255,.16); padding:10px 12px; border-radius:10px }
-
-    /* Help modal */
-    .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.6); z-index:90; padding:20px }
-    .modal.open{ display:flex }
-    .modal .content{ background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03)); border:1px solid rgba(255,255,255,.12); border-radius:18px; max-width:420px; width:calc(100vw - 24px); padding:16px; }
-
-    @media (min-width:768px){ .container{ --container-w: 520px } }
+    /* Flash pulse overlay (for beat-synced flash) */
+    .flash-layer{ position:fixed; inset:0; pointer-events:none; background:#fff; opacity:0; z-index:100; }
   </style>
 </head>
 <body>
@@ -142,9 +136,15 @@
       <div class="chips" id="matChips" role="listbox" aria-label="Material timer presets"></div>
     </section>
 
-    <!-- CUSTOM -->
+    <!-- CUSTOM PRESETS (user saved) -->
+    <section class="section">
+      <h3>Custom Presets <button class="btn ghost" id="deleteModeBtn" style="flex:0 0 auto; padding:8px 10px; min-height:40px; font-size:.95rem">Delete</button></h3>
+      <div class="chips" id="userChips" role="listbox" aria-label="Your saved presets"></div>
+    </section>
+
+    <!-- CUSTOM (create/save) -->
     <section class="section card">
-      <h3 style="margin:0 0 8px">Custom</h3>
+      <h3 style="margin:0 0 8px">Create Custom</h3>
       <div class="custom">
         <div class="num" aria-label="Minutes input"><span class="muted">min</span>
           <input id="mins" inputmode="numeric" pattern="[0-9]*" aria-label="Minutes" value="1" />
@@ -155,13 +155,16 @@
         <button class="btn ghost" id="applyCustom" style="flex:0 0 auto">Set Time</button>
         <button class="btn ghost" id="savePreset" style="flex:0 0 auto">Save Preset</button>
       </div>
-      <div class="chips" id="savedChips" style="margin-top:8px"></div>
     </section>
 
-    <!-- FACTS (non-overlay) -->
+    <!-- FACTS -->
     <details class="facts section card">
       <summary>Glass Facts</summary>
-      <div class="facts-wrap" id="facts"></div>
+      <div class="facts-wrap" id="factsGlass"></div>
+    </details>
+    <details class="facts section card">
+      <summary>Wax Facts</summary>
+      <div class="facts-wrap" id="factsWax"></div>
     </details>
   </main>
 
@@ -177,12 +180,15 @@
     </div>
   </nav>
 
+  <!-- Flash overlay for beat pulses -->
+  <div class="flash-layer" id="flashLayer"></div>
+
   <!-- Toasts & Help -->
   <div class="toasts" id="toasts" aria-live="assertive"></div>
   <div class="modal" id="helpModal" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
     <div class="content">
       <h3 id="helpTitle" style="margin-top:0">How it works</h3>
-      <p>Tap a preset or set a custom time, then <b>Start</b>. We keep the screen awake. When it ends: screen flash, a 5s lo‑fi/roots chime, and a vibration. Toggle sound in the dock.</p>
+      <p>Tap a preset or set a custom time, then <b>Start</b>. We keep the screen awake. When it ends: synced white flashes with a 5s lo‑fi/roots chime, and a vibration. Toggle sound in the dock.</p>
       <p class="muted">Disclaimer: Defaults lean slightly longer for thin $15 bangers (faster heat loss).</p>
       <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px">
         <button class="btn ghost" id="closeHelp">Close</button>
@@ -197,13 +203,24 @@
     const $ = s=>document.querySelector(s); const $$ = s=>Array.from(document.querySelectorAll(s));
 
     /* STATE */
-    const storeKey = 'hightimer:v2';
-    const state = { total:60, remaining:60, running:false, muted:false, haptics:true, wakeLock:null, startWall:0, saved:[], lastPreset:null };
-    try{ const saved = JSON.parse(localStorage.getItem(storeKey)||'{}'); Object.assign(state, { muted:!!saved.muted, haptics: saved.haptics??true, saved: Array.isArray(saved.saved)? saved.saved.slice(0,12):[], lastPreset: saved.lastPreset||null }); }catch{}
+    const storeKey = 'hightimer:v3';
+    const state = { total:60, remaining:60, running:false, muted:false, haptics:true, wakeLock:null, startWall:0, saved:[], lastPreset:null, deleteMode:false };
+    try{ const saved = JSON.parse(localStorage.getItem(storeKey)||'{}'); Object.assign(state, { muted:!!saved.muted, haptics: saved.haptics??true, saved: Array.isArray(saved.saved)? saved.saved.slice(0,24):[], lastPreset: saved.lastPreset||null }); }catch{}
     const persist = ()=> localStorage.setItem(storeKey, JSON.stringify({ muted:state.muted, haptics:state.haptics, saved:state.saved, lastPreset:state.lastPreset }));
 
-    /* AUDIO (5s reggae/lofi jingle) */
-    let audioCtx; const audio={ nodes:[], ensure(){ if(!audioCtx){ try{ audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }catch{} } return !!audioCtx; }, stop(){ this.nodes.forEach(n=>{try{n.stop(0); n.disconnect();}catch{}}); this.nodes=[]; }, async play(){ if(state.muted) return; if(!this.ensure()) return; try{ if(audioCtx.state==='suspended') await audioCtx.resume(); }catch{} const c=audioCtx; const master=c.createGain(); master.gain.value=0.24; master.connect(c.destination); const len=5, now=c.currentTime, beat=60/92, tones=[220,261.63,329.63]; for(let i=0;i<Math.ceil(len/beat);i++){ const t=now+i*beat+beat*.5; const g=c.createGain(); g.connect(master); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.75,t+.015); g.gain.exponentialRampToValueAtTime(.001,t+.22); tones.forEach((f,j)=>{ const o=c.createOscillator(), e=c.createGain(); o.type=j? 'square':'triangle'; o.frequency.setValueAtTime(f,t); o.connect(e); e.connect(g); o.start(t); o.stop(t+.25); audio.nodes.push(o,e);}); audio.nodes.push(g);} const sub=c.createOscillator(), sg=c.createGain(); sub.type='sine'; sg.gain.value=.18; sub.connect(sg); sg.connect(master); sub.frequency.setValueAtTime(110,now); sub.frequency.exponentialRampToValueAtTime(55,now+len); sub.start(now); sub.stop(now+len); audio.nodes.push(sub,sg,master); setTimeout(()=>audio.stop(), (len+.2)*1000); } };
+    /* FLASH (beat-synced) */
+    const flashEl = $('#flashLayer');
+    function flashPulse(){
+      flashEl.animate([{opacity:0},{opacity:.22},{opacity:0}], {duration:160, easing:'ease-out'});
+    }
+
+    /* AUDIO (5s reggae/lofi jingle with flash on each offbeat) */
+    let audioCtx; const audio={ nodes:[], ensure(){ if(!audioCtx){ try{ audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }catch{} } return !!audioCtx; }, stop(){ this.nodes.forEach(n=>{try{n.stop(0); n.disconnect();}catch{}}); this.nodes=[]; }, async play(){ if(state.muted) return; if(!this.ensure()) return; try{ if(audioCtx.state==='suspended') await audioCtx.resume(); }catch{} const c=audioCtx; const master=c.createGain(); master.gain.value=0.24; master.connect(c.destination); const len=5, now=c.currentTime, beat=60/92, tones=[220,261.63,329.63]; for(let i=0;i<Math.ceil(len/beat);i++){ const t=now+i*beat+beat*.5; // offbeat
+          const g=c.createGain(); g.connect(master); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.75,t+.015); g.gain.exponentialRampToValueAtTime(.001,t+.22);
+          tones.forEach((f,j)=>{ const o=c.createOscillator(), e=c.createGain(); o.type=j? 'square':'triangle'; o.frequency.setValueAtTime(f,t); o.connect(e); e.connect(g); o.start(t); o.stop(t+.25); this.nodes.push(o,e);}); this.nodes.push(g);
+          // schedule UI flash in sync with this offbeat
+          const delay=(t-now)*1000; setTimeout(flashPulse, Math.max(0, delay)); }
+        const sub=c.createOscillator(), sg=c.createGain(); sub.type='sine'; sg.gain.value=.18; sub.connect(sg); sg.connect(master); sub.frequency.setValueAtTime(110,now); sub.frequency.exponentialRampToValueAtTime(55,now+len); sub.start(now); sub.stop(now+len); this.nodes.push(sub,sg,master); setTimeout(()=>this.stop(), (len+.2)*1000); } };
     const uiTick=()=>{ if(state.muted) return; if(!audio.ensure()) return; const c=audioCtx,o=c.createOscillator(),g=c.createGain(); o.type='square'; o.frequency.value=880; g.gain.value=.05; o.connect(g); g.connect(c.destination); const t=c.currentTime; o.start(t); o.stop(t+.06); };
 
     /* TIMER */
@@ -218,7 +235,7 @@
     function start(){ if(state.running) return; uiTick(); state.running=true; state.startWall=Date.now()-(state.total-state.remaining)*1000; statusEl.textContent='Counting…'; requestWake(); raf=requestAnimationFrame(tick); pauseBtn.textContent='Pause'; pauseBtn.disabled=false; resetBtn.disabled=false; if(state.haptics&&'vibrate' in navigator) navigator.vibrate(30); }
     function pause(){ if(!state.running) return; state.running=false; uiTick(); statusEl.textContent='Paused'; releaseWake(); cancelAnimationFrame(raf); if(state.haptics&&'vibrate' in navigator) navigator.vibrate([10,40,10]); }
     function reset(){ if(state.running && !confirm('Reset the countdown?')) return; state.running=false; state.remaining=state.total; uiTick(); render(); statusEl.textContent='Ready'; releaseWake(); cancelAnimationFrame(raf); }
-    function finish(){ state.running=false; state.remaining=0; render(); statusEl.textContent='Blast off.'; releaseWake(); cancelAnimationFrame(raf); document.documentElement.animate([{backgroundColor:'rgba(87,255,154,.45)'},{backgroundColor:'transparent'}],{duration:420}); if(state.haptics&&'vibrate' in navigator) navigator.vibrate([50,60,50,60,120]); audio.play(); }
+    function finish(){ state.running=false; state.remaining=0; render(); statusEl.textContent='Blast off.'; releaseWake(); cancelAnimationFrame(raf); if(state.haptics&&'vibrate' in navigator) navigator.vibrate([50,60,50,60,120]); audio.play(); }
     startBtn.addEventListener('click',()=>{ if(state.remaining<=0) state.remaining=state.total; start(); });
     pauseBtn.addEventListener('click',()=>{ if(!state.running){ start(); pauseBtn.textContent='Pause'; } else { pause(); pauseBtn.textContent='Resume'; } });
     resetBtn.addEventListener('click',reset);
@@ -234,7 +251,15 @@
       {name:'Distillate',s:30,tip:'Quick hits—~30s.'},
     ];
     const quickWrap=$('#quickChips');
-    function chip(label,seconds,tip){ const el=document.createElement('button'); el.className='chip'; el.title=tip||''; el.innerHTML=`<strong>${label}</strong> <span class="tiny">${fmt(seconds)}</span>`; el.addEventListener('click',()=>{ $$('.chip').forEach(c=>c.classList.remove('active')); el.classList.add('active'); setTotal(seconds); state.lastPreset={label,seconds}; persist(); statusEl.textContent=`Preset: ${label}`;}); return el; }
+    function chip(label,seconds,tip, dataset){ const el=document.createElement('button'); el.className='chip'; el.title=tip||''; if(dataset){ Object.entries(dataset).forEach(([k,v])=> el.dataset[k]=v ); } el.innerHTML=`<strong>${label}</strong> <span class="tiny">${fmt(seconds)}</span>`; el.addEventListener('click',()=>{
+        if(state.deleteMode && el.dataset.id){ // deleting a user preset
+          const idx = state.saved.findIndex(p=> String(p.id)===String(el.dataset.id));
+          if(idx>-1){ state.saved.splice(idx,1); persist(); renderSaved(); toast('Deleted'); }
+          return;
+        }
+        $$('.chip').forEach(c=>c.classList.remove('active','delete-candidate'));
+        el.classList.add('active'); setTotal(seconds); state.lastPreset={label,seconds}; persist(); statusEl.textContent=`Preset: ${label}`;
+      }); return el; }
     quick.forEach(s=> quickWrap.appendChild(chip(s<60? s+'s':'Custom', s)) );
     quickWrap.children[0].querySelector('strong').textContent='30s';
     quickWrap.children[1].querySelector('strong').textContent='45s';
@@ -247,30 +272,38 @@
 
     if(state.lastPreset){ setTotal(state.lastPreset.seconds); statusEl.textContent=`Preset: ${state.lastPreset.label}`; [...$$('.chip')].find(c=>c.textContent.includes(state.lastPreset.label))?.classList.add('active'); } else { setTotal(60); quickWrap.children[2].classList.add('active'); }
 
-    /* CUSTOM */
+    /* CUSTOM CREATION */
     $('#applyCustom').addEventListener('click',()=>{ const m=parseInt($('#mins').value||'0',10)||0; const s=parseInt($('#secs').value||'0',10)||0; const tot=Math.min(59*60+59, Math.max(1, m*60+s)); setTotal(tot); statusEl.textContent='Custom set'; $$('.chip').forEach(c=>c.classList.remove('active')); });
-    $('#savePreset').addEventListener('click',()=>{ const tot=state.total; if(!tot) return; const name=prompt('Name this preset:', `Preset ${fmt(tot)}`); if(!name) return; state.saved.unshift({name, s:tot}); state.saved=state.saved.slice(0,12); persist(); renderSaved(); toast('Saved preset'); });
-    function renderSaved(){ const wrap=$('#savedChips'); wrap.innerHTML=''; state.saved.forEach((p,i)=>{ const c=chip(p.name,p.s); wrap.appendChild(c); c.addEventListener('contextmenu',e=>{ e.preventDefault(); if(confirm(`Delete "${p.name}"?`)){ state.saved.splice(i,1); persist(); renderSaved(); }}); }); }
+    $('#savePreset').addEventListener('click',()=>{ const tot=state.total; if(!tot) return; const name=prompt('Name this preset:', `Preset ${fmt(tot)}`); if(!name) return; const id=Date.now(); state.saved.unshift({id, name, s:tot}); state.saved=state.saved.slice(0,24); persist(); renderSaved(); toast('Saved preset'); });
+
+    /* CUSTOM PRESETS ROW (userChips) + Delete mode */
+    const userWrap = $('#userChips'); const deleteBtn = $('#deleteModeBtn');
+    function renderSaved(){ userWrap.innerHTML=''; state.saved.forEach(p=>{ const c=chip(p.name, p.s, '', { id: p.id }); if(state.deleteMode) c.classList.add('delete-candidate'); userWrap.appendChild(c); }); if(!state.saved.length){ userWrap.innerHTML = '<span class="muted" style="padding:8px">No custom presets yet.</span>'; } }
+    function setDeleteMode(on){ state.deleteMode = on; deleteBtn.textContent = on? 'Done' : 'Delete'; $$('#userChips .chip').forEach(c=> c.classList.toggle('delete-candidate', on)); }
+    deleteBtn.addEventListener('click', ()=>{ setDeleteMode(!state.deleteMode); });
     renderSaved();
 
     /* FACTS */
-    const FACTS=[
+    const GLASS=[
       'Thin “$15” bangers lose heat faster—slightly longer cool-down gives smoother pulls.',
       'Carb caps increase vaporization efficiency—spin for even heat distribution.',
       'Avoid torching the joint—thermal shock can crack glass over time.',
+      'Use distilled water to reduce mineral spots and keep flavor clean.',
       'Cold-starts preserve terps: load first, low heat, slow draw.',
-      'Chazzing = overheated residue—iso + warm water soaks help prevent it.',
-      'Quartz retains flavor; titanium is more durable but changes taste.',
       'Let hot bangers rest on a heat-safe pad; cold surfaces can stress glass.',
-      'Reheats? Wait 10–20s to avoid scorching leftovers.',
-      'Directional caps help spin pearls for consistent contact.',
-      'Sticky reclaim builds draw resistance—clean joints and downstems often.',
-      'Smaller rigs intensify flavor; bigger rigs cool vapor more.',
-      'Use distilled water to reduce mineral spots on glass.',
-      'Sugar diamonds are dense—often benefit from slightly longer cool-downs.',
-      'Live resin retains more terps—lower temps highlight flavor.',
+      'Sticky reclaim builds draw resistance—clean joints and downstems often.'
     ];
-    $('#facts').innerHTML = FACTS.map(f=>`<div class="fact">${f}</div>`).join('');
+    const WAX=[
+      'Live resin = high terp retention; run slightly cooler for flavor.',
+      'Sugar diamonds are dense—benefit from a touch longer cool-down.',
+      'Rosin prefers moderate temps to avoid burnt taste and preserve profile.',
+      'Shatter can be brittle; steady heat application prevents scorching.',
+      'Badder/Butter textures melt evenly—consistent airflow helps vaporize.',
+      'Distillate hits fast; shorter timers (≈30s) often feel best for small dabs.'
+    ];
+    const gWrap=$('#factsGlass'), wWrap=$('#factsWax');
+    gWrap.innerHTML = GLASS.map(f=>`<div class="fact">${f}</div>`).join('');
+    wWrap.innerHTML = WAX.map(f=>`<div class="fact">${f}</div>`).join('');
 
     /* MUTE / HELP / TOASTS */
     const toasts=$('#toasts'); const toast=msg=>{ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; toasts.appendChild(t); setTimeout(()=>t.remove(), 2200); };
@@ -280,8 +313,9 @@
     muteBtn.addEventListener('click', async()=>{ state.muted=!state.muted; applyMuteIcon(); persist(); if(!state.muted){ try{ await audioCtx?.resume(); }catch{} uiTick(); toast('Sound on'); } else { audio.stop(); toast('Muted'); } });
 
     /* PWA-lite SW (cache this page) */
-    if('serviceWorker' in navigator){ const sw=`self.addEventListener('install',e=>{self.skipWaiting(); e.waitUntil(caches.open('hightimer-v2').then(c=>c.addAll(['./']))) }); self.addEventListener('activate',e=>self.clients.claim()); self.addEventListener('fetch',e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)))})`; const url=URL.createObjectURL(new Blob([sw],{type:'text/javascript'})); navigator.serviceWorker.register(url).catch(()=>{}); }
+    if('serviceWorker' in navigator){ const sw=`self.addEventListener('install',e=>{self.skipWaiting(); e.waitUntil(caches.open('hightimer-v3').then(c=>c.addAll(['./']))) }); self.addEventListener('activate',e=>self.clients.claim()); self.addEventListener('fetch',e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)))})`; const url=URL.createObjectURL(new Blob([sw],{type:'text/javascript'})); navigator.serviceWorker.register(url).catch(()=>{}); }
 
+    // Init
     render();
   })();
   </script>
