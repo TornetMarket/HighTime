@@ -7,8 +7,8 @@
   <title>HighTimer — Dab Countdown</title>
   <style>
     /* ==========================
-       HighTimer — ULTRA-CLEAN MOBILE LAYOUT (v3)
-       One-column flow • iPhone-safe • custom presets row • synced flash pulses
+       HighTimer — ULTRA-CLEAN MOBILE LAYOUT (v4.1)
+       + Custom Presets row + Wax Facts + Beat-synced flash + TTS + Modal fix
        ========================== */
     :root{
       --bg:#0b0f0c;
@@ -101,6 +101,11 @@
 
     /* Flash pulse overlay (for beat-synced flash) */
     .flash-layer{ position:fixed; inset:0; pointer-events:none; background:#fff; opacity:0; z-index:100; }
+
+    /* Modal: force hidden by default */
+    .modal{ position:fixed; inset:0; display:none !important; align-items:center; justify-content:center; background:rgba(0,0,0,.6); z-index:90; padding:20px }
+    .modal.open{ display:flex !important }
+    .modal .content{ background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03)); border:1px solid rgba(255,255,255,.12); border-radius:18px; max-width:420px; width:calc(100vw - 24px); padding:16px; }
   </style>
 </head>
 <body>
@@ -174,6 +179,9 @@
       <button class="btn primary" id="startBtn">Start</button>
       <button class="btn ghost" id="pauseBtn" disabled>Pause</button>
       <button class="btn ghost" id="resetBtn" disabled>Reset</button>
+      <button class="icon-btn" id="voiceBtn" aria-pressed="true" aria-label="Toggle voice" style="flex:0 0 42px">
+        <svg id="voiceIcon" viewBox="0 0 24 24"><path fill="currentColor" d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3m7 9a7 7 0 0 1-14 0H3a9 9 0 0 0 18 0z"/></svg>
+      </button>
       <button class="icon-btn" id="muteBtn" aria-pressed="false" aria-label="Toggle sound" style="flex:0 0 42px">
         <svg id="muteIcon" viewBox="0 0 24 24"><path fill="currentColor" d="M5 9v6h4l5 5V4L9 9H5zm12.59 3 1.7 1.71 1.41-1.41-1.7-1.71 1.7-1.71-1.41-1.41L17.59 9l-1.71-1.71-1.41 1.41 1.7 1.71-1.7 1.71 1.41 1.41L17.59 12z"/></svg>
       </button>
@@ -185,10 +193,10 @@
 
   <!-- Toasts & Help -->
   <div class="toasts" id="toasts" aria-live="assertive"></div>
-  <div class="modal" id="helpModal" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+  <div class="modal" id="helpModal" role="dialog" aria-modal="true" aria-labelledby="helpTitle" aria-hidden="true">
     <div class="content">
       <h3 id="helpTitle" style="margin-top:0">How it works</h3>
-      <p>Tap a preset or set a custom time, then <b>Start</b>. We keep the screen awake. When it ends: synced white flashes with a 5s lo‑fi/roots chime, and a vibration. Toggle sound in the dock.</p>
+      <p>Tap a preset or set a custom time, then <b>Start</b>. We keep the screen awake. When it ends: synced white flashes with a 5s lo-fi/roots chime, voice line, and a vibration. Use the dock to toggle <b>sound</b> or <b>voice</b>.</p>
       <p class="muted">Disclaimer: Defaults lean slightly longer for thin $15 bangers (faster heat loss).</p>
       <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px">
         <button class="btn ghost" id="closeHelp">Close</button>
@@ -203,25 +211,41 @@
     const $ = s=>document.querySelector(s); const $$ = s=>Array.from(document.querySelectorAll(s));
 
     /* STATE */
-    const storeKey = 'hightimer:v3';
-    const state = { total:60, remaining:60, running:false, muted:false, haptics:true, wakeLock:null, startWall:0, saved:[], lastPreset:null, deleteMode:false };
-    try{ const saved = JSON.parse(localStorage.getItem(storeKey)||'{}'); Object.assign(state, { muted:!!saved.muted, haptics: saved.haptics??true, saved: Array.isArray(saved.saved)? saved.saved.slice(0,24):[], lastPreset: saved.lastPreset||null }); }catch{}
-    const persist = ()=> localStorage.setItem(storeKey, JSON.stringify({ muted:state.muted, haptics:state.haptics, saved:state.saved, lastPreset:state.lastPreset }));
+    const storeKey = 'hightimer:v4.1';
+    const state = { total:60, remaining:60, running:false, muted:false, haptics:true, wakeLock:null, startWall:0, saved:[], lastPreset:null, deleteMode:false, voiceEnabled:true, voiceIdx:0 };
+    try{ const saved = JSON.parse(localStorage.getItem(storeKey)||'{}'); Object.assign(state, { muted:!!saved.muted, haptics: saved.haptics??true, saved: Array.isArray(saved.saved)? saved.saved.slice(0,24):[], lastPreset: saved.lastPreset||null, voiceEnabled: saved.voiceEnabled ?? true, voiceIdx: saved.voiceIdx ?? 0 }); }catch{}
+    const persist = ()=> localStorage.setItem(storeKey, JSON.stringify({ muted:state.muted, haptics:state.haptics, saved:state.saved, lastPreset:state.lastPreset, voiceEnabled:state.voiceEnabled, voiceIdx: state.voiceIdx }));
 
     /* FLASH (beat-synced) */
     const flashEl = $('#flashLayer');
-    function flashPulse(){
-      flashEl.animate([{opacity:0},{opacity:.22},{opacity:0}], {duration:160, easing:'ease-out'});
-    }
+    function flashPulse(){ flashEl.animate([{opacity:0},{opacity:.22},{opacity:0}], {duration:160, easing:'ease-out'}); }
 
     /* AUDIO (5s reggae/lofi jingle with flash on each offbeat) */
-    let audioCtx; const audio={ nodes:[], ensure(){ if(!audioCtx){ try{ audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }catch{} } return !!audioCtx; }, stop(){ this.nodes.forEach(n=>{try{n.stop(0); n.disconnect();}catch{}}); this.nodes=[]; }, async play(){ if(state.muted) return; if(!this.ensure()) return; try{ if(audioCtx.state==='suspended') await audioCtx.resume(); }catch{} const c=audioCtx; const master=c.createGain(); master.gain.value=0.24; master.connect(c.destination); const len=5, now=c.currentTime, beat=60/92, tones=[220,261.63,329.63]; for(let i=0;i<Math.ceil(len/beat);i++){ const t=now+i*beat+beat*.5; // offbeat
-          const g=c.createGain(); g.connect(master); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.75,t+.015); g.gain.exponentialRampToValueAtTime(.001,t+.22);
-          tones.forEach((f,j)=>{ const o=c.createOscillator(), e=c.createGain(); o.type=j? 'square':'triangle'; o.frequency.setValueAtTime(f,t); o.connect(e); e.connect(g); o.start(t); o.stop(t+.25); this.nodes.push(o,e);}); this.nodes.push(g);
-          // schedule UI flash in sync with this offbeat
-          const delay=(t-now)*1000; setTimeout(flashPulse, Math.max(0, delay)); }
-        const sub=c.createOscillator(), sg=c.createGain(); sub.type='sine'; sg.gain.value=.18; sub.connect(sg); sg.connect(master); sub.frequency.setValueAtTime(110,now); sub.frequency.exponentialRampToValueAtTime(55,now+len); sub.start(now); sub.stop(now+len); this.nodes.push(sub,sg,master); setTimeout(()=>this.stop(), (len+.2)*1000); } };
+    let audioCtx; const audio={ nodes:[], ensure(){ if(!audioCtx){ try{ audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }catch{} } return !!audioCtx; }, stop(){ this.nodes.forEach(n=>{try{n.stop(0); n.disconnect();}catch{}}); this.nodes=[]; }, async play(){ if(state.muted) return; if(!this.ensure()) return; try{ if(audioCtx.state==='suspended') await audioCtx.resume(); }catch{} const c=audioCtx; const master=c.createGain(); master.gain.value=0.24; master.connect(c.destination); const len=5, now=c.currentTime, beat=60/92, tones=[220,261.63,329.63]; for(let i=0;i<Math.ceil(len/beat);i++){ const t=now+i*beat+beat*.5; const g=c.createGain(); g.connect(master); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.75,t+.015); g.gain.exponentialRampToValueAtTime(.001,t+.22); tones.forEach((f,j)=>{ const o=c.createOscillator(), e=c.createGain(); o.type=j? 'square':'triangle'; o.frequency.setValueAtTime(f,t); o.connect(e); e.connect(g); o.start(t); o.stop(t+.25); this.nodes.push(o,e);}); this.nodes.push(g); const delay=(t-now)*1000; setTimeout(flashPulse, Math.max(0, delay)); } const sub=c.createOscillator(), sg=c.createGain(); sub.type='sine'; sg.gain.value=.18; sub.connect(sg); sg.connect(master); sub.frequency.setValueAtTime(110,now); sub.frequency.exponentialRampToValueAtTime(55,now+len); sub.start(now); sub.stop(now+len); this.nodes.push(sub,sg,master); setTimeout(()=>this.stop(), (len+.2)*1000); } };
     const uiTick=()=>{ if(state.muted) return; if(!audio.ensure()) return; const c=audioCtx,o=c.createOscillator(),g=c.createGain(); o.type='square'; o.frequency.value=880; g.gain.value=.05; o.connect(g); g.connect(c.destination); const t=c.currentTime; o.start(t); o.stop(t+.06); };
+
+    /* TTS (Jarvis-ish male voice) */
+    const VOICE_LINES = [
+      'Load the banger!',
+      'Load the wax.',
+      'Holy shit, you are about to get high as fuck.',
+      'Good luck, my friend.',
+      'Let’s vibe.',
+      'Proceed when ready.'
+    ];
+    const tts = {
+      voice: null,
+      ensured: false,
+      ensure(){ if(!('speechSynthesis' in window)) return false; if(this.ensured) return true; const pick=()=>{ const voices = speechSynthesis.getVoices(); if(!voices || !voices.length) return false; // Choose likely male English voices
+          const prefer = [/(Male|Jarvis|David|Daniel|Brian|Matthew|Justin|Joey|Guy|Ryan)/i];
+          const en = voices.filter(v=>/en[-_]/i.test(v.lang));
+          const match = en.find(v=> prefer.some(rx=> rx.test(v.name))) || en[0] || voices[0];
+          this.voice = match || null; return true; };
+        let ok = pick(); if(!ok){ speechSynthesis.onvoiceschanged = ()=>{ if(pick()){ this.ensured=true; speechSynthesis.onvoiceschanged=null; } }; } else { this.ensured=true; }
+        return this.ensured; },
+      speak(text){ if(!state.voiceEnabled) return; if(!('speechSynthesis' in window)) return; if(!this.ensured) this.ensure(); const u = new SpeechSynthesisUtterance(text); if(this.voice) u.voice = this.voice; u.lang = (this.voice?.lang)||'en-US'; u.rate = 0.96; u.pitch = 0.92; u.volume = 1; try{ speechSynthesis.speak(u); }catch{} },
+      speakNext(){ const line = VOICE_LINES[state.voiceIdx % VOICE_LINES.length]; this.speak(line); state.voiceIdx = (state.voiceIdx+1) % VOICE_LINES.length; persist(); }
+    };
 
     /* TIMER */
     const timeEl=$('#time'), statusEl=$('#status'), ringEl=$('#ringFg'), startBtn=$('#startBtn'), pauseBtn=$('#pauseBtn'), resetBtn=$('#resetBtn');
@@ -231,11 +255,12 @@
     function render(){ timeEl.textContent=fmt(state.remaining); const p=1-(state.remaining/state.total); ringEl.style.strokeDashoffset=String(p*CIRC); pauseBtn.disabled=!state.running; resetBtn.disabled=!state.running && state.remaining===state.total; }
     function tick(){ if(!state.running){ cancelAnimationFrame(raf); return;} const now=Date.now(); const elapsed=Math.max(0, Math.round((now-state.startWall)/1000)); state.remaining=Math.max(0, state.total-elapsed); render(); if(state.remaining<=0){ finish(); return;} raf=requestAnimationFrame(tick); }
     async function requestWake(){ if('wakeLock' in navigator){ try{ state.wakeLock=await navigator.wakeLock.request('screen'); state.wakeLock.addEventListener('release',()=>state.wakeLock=null);}catch{ toast("Can't keep screen awake—keep me in view."); } } }
-    function releaseWake(){ try{ state.wakeLock&&state.wakeLock.release(); }catch{} finally{ state.wakeLock=null; } }
-    function start(){ if(state.running) return; uiTick(); state.running=true; state.startWall=Date.now()-(state.total-state.remaining)*1000; statusEl.textContent='Counting…'; requestWake(); raf=requestAnimationFrame(tick); pauseBtn.textContent='Pause'; pauseBtn.disabled=false; resetBtn.disabled=false; if(state.haptics&&'vibrate' in navigator) navigator.vibrate(30); }
+    function releaseWake(){ try{ state.wakeLock&&state.wakeLock.release(); }catch{} finally{ state.wakeLock=null; }
+    }
+    function start(){ if(state.running) return; uiTick(); tts.ensure(); state.running=true; state.startWall=Date.now()-(state.total-state.remaining)*1000; statusEl.textContent='Counting…'; requestWake(); raf=requestAnimationFrame(tick); pauseBtn.textContent='Pause'; pauseBtn.disabled=false; resetBtn.disabled=false; if(state.haptics&&'vibrate' in navigator) navigator.vibrate(30); }
     function pause(){ if(!state.running) return; state.running=false; uiTick(); statusEl.textContent='Paused'; releaseWake(); cancelAnimationFrame(raf); if(state.haptics&&'vibrate' in navigator) navigator.vibrate([10,40,10]); }
     function reset(){ if(state.running && !confirm('Reset the countdown?')) return; state.running=false; state.remaining=state.total; uiTick(); render(); statusEl.textContent='Ready'; releaseWake(); cancelAnimationFrame(raf); }
-    function finish(){ state.running=false; state.remaining=0; render(); statusEl.textContent='Blast off.'; releaseWake(); cancelAnimationFrame(raf); if(state.haptics&&'vibrate' in navigator) navigator.vibrate([50,60,50,60,120]); audio.play(); }
+    function finish(){ state.running=false; state.remaining=0; render(); statusEl.textContent='Blast off.'; releaseWake(); cancelAnimationFrame(raf); if(state.haptics&&'vibrate' in navigator) navigator.vibrate([50,60,50,60,120]); audio.play(); tts.speakNext(); }
     startBtn.addEventListener('click',()=>{ if(state.remaining<=0) state.remaining=state.total; start(); });
     pauseBtn.addEventListener('click',()=>{ if(!state.running){ start(); pauseBtn.textContent='Pause'; } else { pause(); pauseBtn.textContent='Resume'; } });
     resetBtn.addEventListener('click',reset);
@@ -252,11 +277,7 @@
     ];
     const quickWrap=$('#quickChips');
     function chip(label,seconds,tip, dataset){ const el=document.createElement('button'); el.className='chip'; el.title=tip||''; if(dataset){ Object.entries(dataset).forEach(([k,v])=> el.dataset[k]=v ); } el.innerHTML=`<strong>${label}</strong> <span class="tiny">${fmt(seconds)}</span>`; el.addEventListener('click',()=>{
-        if(state.deleteMode && el.dataset.id){ // deleting a user preset
-          const idx = state.saved.findIndex(p=> String(p.id)===String(el.dataset.id));
-          if(idx>-1){ state.saved.splice(idx,1); persist(); renderSaved(); toast('Deleted'); }
-          return;
-        }
+        if(state.deleteMode && el.dataset.id){ const idx = state.saved.findIndex(p=> String(p.id)===String(el.dataset.id)); if(idx>-1){ state.saved.splice(idx,1); persist(); renderSaved(); toast('Deleted'); } return; }
         $$('.chip').forEach(c=>c.classList.remove('active','delete-candidate'));
         el.classList.add('active'); setTotal(seconds); state.lastPreset={label,seconds}; persist(); statusEl.textContent=`Preset: ${label}`;
       }); return el; }
@@ -301,19 +322,36 @@
       'Badder/Butter textures melt evenly—consistent airflow helps vaporize.',
       'Distillate hits fast; shorter timers (≈30s) often feel best for small dabs.'
     ];
-    const gWrap=$('#factsGlass'), wWrap=$('#factsWax');
-    gWrap.innerHTML = GLASS.map(f=>`<div class="fact">${f}</div>`).join('');
-    wWrap.innerHTML = WAX.map(f=>`<div class="fact">${f}</div>`).join('');
+    $('#factsGlass').innerHTML = GLASS.map(f=>`<div class="fact">${f}</div>`).join('');
+    $('#factsWax').innerHTML = WAX.map(f=>`<div class="fact">${f}</div>`).join('');
 
-    /* MUTE / HELP / TOASTS */
+    /* MUTE / VOICE / HELP / TOASTS */
     const toasts=$('#toasts'); const toast=msg=>{ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; toasts.appendChild(t); setTimeout(()=>t.remove(), 2200); };
-    const helpModal=$('#helpModal'); $('#infoBtn').addEventListener('click',()=>helpModal.classList.add('open')); $('#closeHelp').addEventListener('click',()=>helpModal.classList.remove('open')); helpModal.addEventListener('click',e=>{ if(e.target===helpModal) helpModal.classList.remove('open');});
+
+    // Help modal wiring — force-closed on init and toggled via icon
+    const helpModal=$('#helpModal');
+    helpModal.classList.remove('open'); helpModal.setAttribute('aria-hidden','true');
+    function openHelp(){ helpModal.classList.add('open'); helpModal.removeAttribute('aria-hidden'); }
+    function closeHelp(){ helpModal.classList.remove('open'); helpModal.setAttribute('aria-hidden','true'); }
+    $('#infoBtn').addEventListener('click', openHelp);
+    $('#closeHelp').addEventListener('click', closeHelp);
+    helpModal.addEventListener('click', e=>{ if(e.target===helpModal) closeHelp(); });
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeHelp(); });
+
     const muteBtn=$('#muteBtn'), muteIcon=$('#muteIcon'); function applyMuteIcon(){ muteBtn.setAttribute('aria-pressed', String(state.muted)); muteIcon.innerHTML = state.muted ? '<path fill="currentColor" d="M5 9v6h4l5 5V4L9 9H5zm9.59 3 2.12 2.12-1.41 1.41L13.17 13l-2.12 2.12-1.41-1.41L11.76 12 9.64 9.88l1.41-1.41L13.17 10l2.12-2.12 1.41 1.41L14 11.59z"/>' : '<path fill="currentColor" d="M5 9v6h4l5 5V4L9 9H5z"/>'; }
     applyMuteIcon();
     muteBtn.addEventListener('click', async()=>{ state.muted=!state.muted; applyMuteIcon(); persist(); if(!state.muted){ try{ await audioCtx?.resume(); }catch{} uiTick(); toast('Sound on'); } else { audio.stop(); toast('Muted'); } });
 
+    const voiceBtn=$('#voiceBtn'), voiceIcon=$('#voiceIcon'); function applyVoiceIcon(){ voiceBtn.setAttribute('aria-pressed', String(state.voiceEnabled)); voiceIcon.style.opacity = state.voiceEnabled? '1' : '.5'; }
+    applyVoiceIcon();
+    voiceBtn.addEventListener('click', ()=>{ state.voiceEnabled = !state.voiceEnabled; applyVoiceIcon(); persist(); toast(state.voiceEnabled? 'Voice on' : 'Voice off'); if(state.voiceEnabled) tts.ensure(); });
+
     /* PWA-lite SW (cache this page) */
-    if('serviceWorker' in navigator){ const sw=`self.addEventListener('install',e=>{self.skipWaiting(); e.waitUntil(caches.open('hightimer-v3').then(c=>c.addAll(['./']))) }); self.addEventListener('activate',e=>self.clients.claim()); self.addEventListener('fetch',e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)))})`; const url=URL.createObjectURL(new Blob([sw],{type:'text/javascript'})); navigator.serviceWorker.register(url).catch(()=>{}); }
+    if('serviceWorker' in navigator){
+      const sw=`self.addEventListener('install',e=>{self.skipWaiting(); e.waitUntil(caches.open('hightimer-v4-1').then(c=>c.addAll(['./']))) }); self.addEventListener('activate',e=>self.clients.claim()); self.addEventListener('fetch',e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)))})`;
+      const url=URL.createObjectURL(new Blob([sw],{type:'text/javascript'}));
+      navigator.serviceWorker.register(url).catch(()=>{});
+    }
 
     // Init
     render();
