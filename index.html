@@ -7,7 +7,7 @@
   <title>HighTimer — Dab Countdown</title>
   <style>
     /* ==========================
-       HighTimer — ULTRA-CLEAN MOBILE LAYOUT (v4.1)
+       HighTimer — ULTRA-CLEAN MOBILE LAYOUT (v4.2)
        + Custom Presets row + Wax Facts + Beat-synced flash + TTS + Modal fix
        ========================== */
     :root{
@@ -211,40 +211,127 @@
     const $ = s=>document.querySelector(s); const $$ = s=>Array.from(document.querySelectorAll(s));
 
     /* STATE */
-    const storeKey = 'hightimer:v4.1';
+    const storeKey = 'hightimer:v4.2';
     const state = { total:60, remaining:60, running:false, muted:false, haptics:true, wakeLock:null, startWall:0, saved:[], lastPreset:null, deleteMode:false, voiceEnabled:true, voiceIdx:0 };
-    try{ const saved = JSON.parse(localStorage.getItem(storeKey)||'{}'); Object.assign(state, { muted:!!saved.muted, haptics: saved.haptics??true, saved: Array.isArray(saved.saved)? saved.saved.slice(0,24):[], lastPreset: saved.lastPreset||null, voiceEnabled: saved.voiceEnabled ?? true, voiceIdx: saved.voiceIdx ?? 0 }); }catch{}
-    const persist = ()=> localStorage.setItem(storeKey, JSON.stringify({ muted:state.muted, haptics:state.haptics, saved:state.saved, lastPreset:state.lastPreset, voiceEnabled:state.voiceEnabled, voiceIdx: state.voiceIdx }));
+    try{
+      const saved = JSON.parse(localStorage.getItem(storeKey)||'{}');
+      Object.assign(state, {
+        muted: !!saved.muted,
+        haptics: saved.haptics ?? true,
+        saved: Array.isArray(saved.saved) ? saved.saved.slice(0,24) : [],
+        lastPreset: saved.lastPreset || null,
+        voiceEnabled: saved.voiceEnabled ?? true,
+        voiceIdx: saved.voiceIdx ?? 0
+      });
+    }catch{}
+    const persist = ()=> localStorage.setItem(storeKey, JSON.stringify({
+      muted:state.muted, haptics:state.haptics, saved:state.saved, lastPreset:state.lastPreset, voiceEnabled:state.voiceEnabled, voiceIdx: state.voiceIdx
+    }));
 
     /* FLASH (beat-synced) */
     const flashEl = $('#flashLayer');
     function flashPulse(){ flashEl.animate([{opacity:0},{opacity:.22},{opacity:0}], {duration:160, easing:'ease-out'}); }
 
     /* AUDIO (5s reggae/lofi jingle with flash on each offbeat) */
-    let audioCtx; const audio={ nodes:[], ensure(){ if(!audioCtx){ try{ audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }catch{} } return !!audioCtx; }, stop(){ this.nodes.forEach(n=>{try{n.stop(0); n.disconnect();}catch{}}); this.nodes=[]; }, async play(){ if(state.muted) return; if(!this.ensure()) return; try{ if(audioCtx.state==='suspended') await audioCtx.resume(); }catch{} const c=audioCtx; const master=c.createGain(); master.gain.value=0.24; master.connect(c.destination); const len=5, now=c.currentTime, beat=60/92, tones=[220,261.63,329.63]; for(let i=0;i<Math.ceil(len/beat);i++){ const t=now+i*beat+beat*.5; const g=c.createGain(); g.connect(master); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.75,t+.015); g.gain.exponentialRampToValueAtTime(.001,t+.22); tones.forEach((f,j)=>{ const o=c.createOscillator(), e=c.createGain(); o.type=j? 'square':'triangle'; o.frequency.setValueAtTime(f,t); o.connect(e); e.connect(g); o.start(t); o.stop(t+.25); this.nodes.push(o,e);}); this.nodes.push(g); const delay=(t-now)*1000; setTimeout(flashPulse, Math.max(0, delay)); } const sub=c.createOscillator(), sg=c.createGain(); sub.type='sine'; sg.gain.value=.18; sub.connect(sg); sg.connect(master); sub.frequency.setValueAtTime(110,now); sub.frequency.exponentialRampToValueAtTime(55,now+len); sub.start(now); sub.stop(now+len); this.nodes.push(sub,sg,master); setTimeout(()=>this.stop(), (len+.2)*1000); } };
+    let audioCtx;
+    const audio={
+      nodes:[],
+      ensure(){ if(!audioCtx){ try{ audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }catch{} } return !!audioCtx; },
+      stop(){ this.nodes.forEach(n=>{try{n.stop(0); n.disconnect();}catch{}}); this.nodes=[]; },
+      async play(){
+        if(state.muted) return;
+        if(!this.ensure()) return;
+        try{ if(audioCtx.state==='suspended') await audioCtx.resume(); }catch{}
+        const c=audioCtx;
+        const master=c.createGain(); master.gain.value=0.24; master.connect(c.destination);
+        const len=5, now=c.currentTime, beat=60/92, tones=[220,261.63,329.63];
+        for(let i=0;i<Math.ceil(len/beat);i++){
+          const t=now+i*beat+beat*.5;
+          const g=c.createGain(); g.connect(master);
+          g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.75,t+.015); g.gain.exponentialRampToValueAtTime(.001,t+.22);
+          tones.forEach((f,j)=>{ const o=c.createOscillator(), e=c.createGain(); o.type=j? 'square':'triangle'; o.frequency.setValueAtTime(f,t); o.connect(e); e.connect(g); o.start(t); o.stop(t+.25); this.nodes.push(o,e);});
+          this.nodes.push(g);
+          const delay=(t-now)*1000; setTimeout(flashPulse, Math.max(0, delay));
+        }
+        const sub=c.createOscillator(), sg=c.createGain(); sub.type='sine'; sg.gain.value=.18; sub.connect(sg); sg.connect(master);
+        sub.frequency.setValueAtTime(110,now); sub.frequency.exponentialRampToValueAtTime(55,now+len); sub.start(now); sub.stop(now+len);
+        this.nodes.push(sub,sg,master);
+        setTimeout(()=>this.stop(), (len+.2)*1000);
+      }
+    };
     const uiTick=()=>{ if(state.muted) return; if(!audio.ensure()) return; const c=audioCtx,o=c.createOscillator(),g=c.createGain(); o.type='square'; o.frequency.value=880; g.gain.value=.05; o.connect(g); g.connect(c.destination); const t=c.currentTime; o.start(t); o.stop(t+.06); };
 
     /* TTS (Jarvis-ish male voice) */
     const VOICE_LINES = [
-      'Load the banger!',
-      'Load the wax.',
-      'Holy shit, you are about to get high as fuck.',
-      'Good luck, my friend.',
-      'Let’s vibe.',
-      'Proceed when ready.'
+    "Load the banger!",
+    "Load the wax.",
+    "Holy shit, you are about to get high as fuck.",
+    "Good luck, my friend.",
+    "Let's vibe.",
+    "Proceed when ready.",
+    // spicy but short
+    "Damn bro, this dab's going to be hot.",
+    "Let it cool down for 5 seconds before loading it.",
+    "You're about to get the dab sweats!",
+    "Get some water handy - you're gonna cough like hell...",
+    // new adds (same length + style)
+    "Too hot? Count to five, then load.",
+    "Small scoop, huge clouds.",
+    "Hydrate up, legend.",
+    "Mind the cooldown, captain.",
+    "Low temp, max terps.",
+    "Prep the cap and pearl.",
+    "Deep breath in, smooth exhale.",
+    "Ready to blast? Go gentle.",
+    "Heat, wait, flavor - trust the process.",
+    "Steady torch, steady hands.",
+    "Grab a napkin - reclaim happens.",
+    "Queue the coughs in 3...2...1.",
+    "Ceramic tongs save fingerprints.",
+    "Line up the rig, then rip.",
+    "Respect your lungs - sip it."
     ];
     const tts = {
       voice: null,
       ensured: false,
-      ensure(){ if(!('speechSynthesis' in window)) return false; if(this.ensured) return true; const pick=()=>{ const voices = speechSynthesis.getVoices(); if(!voices || !voices.length) return false; // Choose likely male English voices
+      ensure(){
+        if(!('speechSynthesis' in window)) return false;
+        if(this.ensured) return true;
+        const pick=()=>{
+          const voices = speechSynthesis.getVoices();
+          if(!voices || !voices.length) return false;
           const prefer = [/(Male|Jarvis|David|Daniel|Brian|Matthew|Justin|Joey|Guy|Ryan)/i];
           const en = voices.filter(v=>/en[-_]/i.test(v.lang));
           const match = en.find(v=> prefer.some(rx=> rx.test(v.name))) || en[0] || voices[0];
-          this.voice = match || null; return true; };
-        let ok = pick(); if(!ok){ speechSynthesis.onvoiceschanged = ()=>{ if(pick()){ this.ensured=true; speechSynthesis.onvoiceschanged=null; } }; } else { this.ensured=true; }
-        return this.ensured; },
-      speak(text){ if(!state.voiceEnabled) return; if(!('speechSynthesis' in window)) return; if(!this.ensured) this.ensure(); const u = new SpeechSynthesisUtterance(text); if(this.voice) u.voice = this.voice; u.lang = (this.voice?.lang)||'en-US'; u.rate = 0.96; u.pitch = 0.92; u.volume = 1; try{ speechSynthesis.speak(u); }catch{} },
-      speakNext(){ const line = VOICE_LINES[state.voiceIdx % VOICE_LINES.length]; this.speak(line); state.voiceIdx = (state.voiceIdx+1) % VOICE_LINES.length; persist(); }
+          this.voice = match || null; return true;
+        };
+        let ok = pick();
+        if(!ok){ speechSynthesis.onvoiceschanged = ()=>{ if(pick()){ this.ensured=true; speechSynthesis.onvoiceschanged=null; } }; }
+        else { this.ensured=true; }
+        return this.ensured;
+      },
+      speak(text){
+        if(!state.voiceEnabled) return;
+        if(!('speechSynthesis' in window)) return;
+        if(!this.ensured) this.ensure();
+        const u = new SpeechSynthesisUtterance(text);
+        if(this.voice) u.voice = this.voice;
+        u.lang = (this.voice?.lang)||'en-US';
+        u.rate = 1.04; u.pitch = 0.95; u.volume = 1;
+        // ensure short: cut after ~3.2s max
+        const MAX_MS = 3200; let timer = null;
+        u.onstart = ()=>{ timer = setTimeout(()=>{ try{ speechSynthesis.cancel(); }catch{} }, MAX_MS); };
+        u.onend = u.onerror = ()=>{ if(timer) clearTimeout(timer); };
+        try{ speechSynthesis.speak(u); }catch{}
+      },
+      speakNext(){
+        if(!VOICE_LINES.length) return;
+        let idx = Math.floor(Math.random()*VOICE_LINES.length);
+        if(VOICE_LINES.length>1 && idx===state.voiceIdx) idx = (idx+1)%VOICE_LINES.length;
+        const line = VOICE_LINES[idx];
+        this.speak(line);
+        state.voiceIdx = idx; persist();
+      }
     };
 
     /* TIMER */
@@ -253,10 +340,15 @@
     const fmt=s=>{s=Math.max(0,Math.round(s)); const m=Math.floor(s/60), ss=s%60; return `${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`};
     function setTotal(sec){ state.total=Math.max(1,sec|0); state.remaining=state.total; render(); }
     function render(){ timeEl.textContent=fmt(state.remaining); const p=1-(state.remaining/state.total); ringEl.style.strokeDashoffset=String(p*CIRC); pauseBtn.disabled=!state.running; resetBtn.disabled=!state.running && state.remaining===state.total; }
-    function tick(){ if(!state.running){ cancelAnimationFrame(raf); return;} const now=Date.now(); const elapsed=Math.max(0, Math.round((now-state.startWall)/1000)); state.remaining=Math.max(0, state.total-elapsed); render(); if(state.remaining<=0){ finish(); return;} raf=requestAnimationFrame(tick); }
-    async function requestWake(){ if('wakeLock' in navigator){ try{ state.wakeLock=await navigator.wakeLock.request('screen'); state.wakeLock.addEventListener('release',()=>state.wakeLock=null);}catch{ toast("Can't keep screen awake—keep me in view."); } } }
-    function releaseWake(){ try{ state.wakeLock&&state.wakeLock.release(); }catch{} finally{ state.wakeLock=null; }
+    function tick(){
+      if(!state.running){ cancelAnimationFrame(raf); return;}
+      const now=Date.now(); const elapsed=Math.max(0, Math.round((now-state.startWall)/1000));
+      state.remaining=Math.max(0, state.total-elapsed); render();
+      if(state.remaining<=0){ finish(); return;}
+      raf=requestAnimationFrame(tick);
     }
+    async function requestWake(){ if('wakeLock' in navigator){ try{ state.wakeLock=await navigator.wakeLock.request('screen'); state.wakeLock.addEventListener('release',()=>state.wakeLock=null);}catch{ toast("Can't keep screen awake—keep me in view."); } } }
+    function releaseWake(){ try{ state.wakeLock&&state.wakeLock.release(); }catch{} finally{ state.wakeLock=null; } }
     function start(){ if(state.running) return; uiTick(); tts.ensure(); state.running=true; state.startWall=Date.now()-(state.total-state.remaining)*1000; statusEl.textContent='Counting…'; requestWake(); raf=requestAnimationFrame(tick); pauseBtn.textContent='Pause'; pauseBtn.disabled=false; resetBtn.disabled=false; if(state.haptics&&'vibrate' in navigator) navigator.vibrate(30); }
     function pause(){ if(!state.running) return; state.running=false; uiTick(); statusEl.textContent='Paused'; releaseWake(); cancelAnimationFrame(raf); if(state.haptics&&'vibrate' in navigator) navigator.vibrate([10,40,10]); }
     function reset(){ if(state.running && !confirm('Reset the countdown?')) return; state.running=false; state.remaining=state.total; uiTick(); render(); statusEl.textContent='Ready'; releaseWake(); cancelAnimationFrame(raf); }
@@ -276,11 +368,22 @@
       {name:'Distillate',s:30,tip:'Quick hits—~30s.'},
     ];
     const quickWrap=$('#quickChips');
-    function chip(label,seconds,tip, dataset){ const el=document.createElement('button'); el.className='chip'; el.title=tip||''; if(dataset){ Object.entries(dataset).forEach(([k,v])=> el.dataset[k]=v ); } el.innerHTML=`<strong>${label}</strong> <span class="tiny">${fmt(seconds)}</span>`; el.addEventListener('click',()=>{
-        if(state.deleteMode && el.dataset.id){ const idx = state.saved.findIndex(p=> String(p.id)===String(el.dataset.id)); if(idx>-1){ state.saved.splice(idx,1); persist(); renderSaved(); toast('Deleted'); } return; }
+    function chip(label,seconds,tip,dataset){
+      const el=document.createElement('button');
+      el.className='chip'; el.title=tip||'';
+      if(dataset){ Object.entries(dataset).forEach(([k,v])=> el.dataset[k]=v ); }
+      el.innerHTML=`<strong>${label}</strong> <span class="tiny">${fmt(seconds)}</span>`;
+      el.addEventListener('click',()=>{
+        if(state.deleteMode && el.dataset.id){
+          const idx = state.saved.findIndex(p=> String(p.id)===String(el.dataset.id));
+          if(idx>-1){ state.saved.splice(idx,1); persist(); renderSaved(); toast('Deleted'); }
+          return;
+        }
         $$('.chip').forEach(c=>c.classList.remove('active','delete-candidate'));
         el.classList.add('active'); setTotal(seconds); state.lastPreset={label,seconds}; persist(); statusEl.textContent=`Preset: ${label}`;
-      }); return el; }
+      });
+      return el;
+    }
     quick.forEach(s=> quickWrap.appendChild(chip(s<60? s+'s':'Custom', s)) );
     quickWrap.children[0].querySelector('strong').textContent='30s';
     quickWrap.children[1].querySelector('strong').textContent='45s';
@@ -291,36 +394,60 @@
 
     const matWrap=$('#matChips'); materials.forEach(m=> matWrap.appendChild(chip(m.name,m.s,m.tip)) );
 
-    if(state.lastPreset){ setTotal(state.lastPreset.seconds); statusEl.textContent=`Preset: ${state.lastPreset.label}`; [...$$('.chip')].find(c=>c.textContent.includes(state.lastPreset.label))?.classList.add('active'); } else { setTotal(60); quickWrap.children[2].classList.add('active'); }
+    if(state.lastPreset){
+      setTotal(state.lastPreset.seconds); statusEl.textContent=`Preset: ${state.lastPreset.label}`;
+      [...$$('.chip')].find(c=>c.textContent.includes(state.lastPreset.label))?.classList.add('active');
+    } else { setTotal(60); quickWrap.children[2].classList.add('active'); }
 
     /* CUSTOM CREATION */
-    $('#applyCustom').addEventListener('click',()=>{ const m=parseInt($('#mins').value||'0',10)||0; const s=parseInt($('#secs').value||'0',10)||0; const tot=Math.min(59*60+59, Math.max(1, m*60+s)); setTotal(tot); statusEl.textContent='Custom set'; $$('.chip').forEach(c=>c.classList.remove('active')); });
-    $('#savePreset').addEventListener('click',()=>{ const tot=state.total; if(!tot) return; const name=prompt('Name this preset:', `Preset ${fmt(tot)}`); if(!name) return; const id=Date.now(); state.saved.unshift({id, name, s:tot}); state.saved=state.saved.slice(0,24); persist(); renderSaved(); toast('Saved preset'); });
+    $('#applyCustom').addEventListener('click',()=>{
+      const m=parseInt($('#mins').value||'0',10)||0;
+      const s=parseInt($('#secs').value||'0',10)||0;
+      const tot=Math.min(59*60+59, Math.max(1, m*60+s));
+      setTotal(tot); statusEl.textContent='Custom set'; $$('.chip').forEach(c=>c.classList.remove('active'));
+    });
+    $('#savePreset').addEventListener('click',()=>{
+      const tot=state.total; if(!tot) return;
+      const name=prompt('Name this preset:', `Preset ${fmt(tot)}`); if(!name) return;
+      const id=Date.now(); state.saved.unshift({id, name, s:tot});
+      state.saved=state.saved.slice(0,24); persist(); renderSaved(); toast('Saved preset');
+    });
 
     /* CUSTOM PRESETS ROW (userChips) + Delete mode */
     const userWrap = $('#userChips'); const deleteBtn = $('#deleteModeBtn');
-    function renderSaved(){ userWrap.innerHTML=''; state.saved.forEach(p=>{ const c=chip(p.name, p.s, '', { id: p.id }); if(state.deleteMode) c.classList.add('delete-candidate'); userWrap.appendChild(c); }); if(!state.saved.length){ userWrap.innerHTML = '<span class="muted" style="padding:8px">No custom presets yet.</span>'; } }
-    function setDeleteMode(on){ state.deleteMode = on; deleteBtn.textContent = on? 'Done' : 'Delete'; $$('#userChips .chip').forEach(c=> c.classList.toggle('delete-candidate', on)); }
+    function renderSaved(){
+      userWrap.innerHTML='';
+      state.saved.forEach(p=>{
+        const c=chip(p.name, p.s, '', { id: p.id });
+        if(state.deleteMode) c.classList.add('delete-candidate');
+        userWrap.appendChild(c);
+      });
+      if(!state.saved.length){ userWrap.innerHTML = '<span class="muted" style="padding:8px">No custom presets yet.</span>'; }
+    }
+    function setDeleteMode(on){
+      state.deleteMode = on; deleteBtn.textContent = on? 'Done' : 'Delete';
+      $$('#userChips .chip').forEach(c=> c.classList.toggle('delete-candidate', on));
+    }
     deleteBtn.addEventListener('click', ()=>{ setDeleteMode(!state.deleteMode); });
     renderSaved();
 
     /* FACTS */
     const GLASS=[
-      'Thin “$15” bangers lose heat faster—slightly longer cool-down gives smoother pulls.',
-      'Carb caps increase vaporization efficiency—spin for even heat distribution.',
-      'Avoid torching the joint—thermal shock can crack glass over time.',
-      'Use distilled water to reduce mineral spots and keep flavor clean.',
-      'Cold-starts preserve terps: load first, low heat, slow draw.',
-      'Let hot bangers rest on a heat-safe pad; cold surfaces can stress glass.',
-      'Sticky reclaim builds draw resistance—clean joints and downstems often.'
+      "Thin “$15” bangers lose heat faster—slightly longer cool-down gives smoother pulls.",
+      "Carb caps increase vaporization efficiency—spin for even heat distribution.",
+      "Avoid torching the joint—thermal shock can crack glass over time.",
+      "Use distilled water to reduce mineral spots and keep flavor clean.",
+      "Cold-starts preserve terps: load first, low heat, slow draw.",
+      "Let hot bangers rest on a heat-safe pad; cold surfaces can stress glass.",
+      "Sticky reclaim builds draw resistance—clean joints and downstems often."
     ];
     const WAX=[
-      'Live resin = high terp retention; run slightly cooler for flavor.',
-      'Sugar diamonds are dense—benefit from a touch longer cool-down.',
-      'Rosin prefers moderate temps to avoid burnt taste and preserve profile.',
-      'Shatter can be brittle; steady heat application prevents scorching.',
-      'Badder/Butter textures melt evenly—consistent airflow helps vaporize.',
-      'Distillate hits fast; shorter timers (≈30s) often feel best for small dabs.'
+      "Live resin = high terp retention; run slightly cooler for flavor.",
+      "Sugar diamonds are dense—benefit from a touch longer cool-down.",
+      "Rosin prefers moderate temps to avoid burnt taste and preserve profile.",
+      "Shatter can be brittle; steady heat application prevents scorching.",
+      "Badder/Butter textures melt evenly—consistent airflow helps vaporize.",
+      "Distillate hits fast; shorter timers (≈30s) often feel best for small dabs."
     ];
     $('#factsGlass').innerHTML = GLASS.map(f=>`<div class="fact">${f}</div>`).join('');
     $('#factsWax').innerHTML = WAX.map(f=>`<div class="fact">${f}</div>`).join('');
@@ -328,7 +455,7 @@
     /* MUTE / VOICE / HELP / TOASTS */
     const toasts=$('#toasts'); const toast=msg=>{ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; toasts.appendChild(t); setTimeout(()=>t.remove(), 2200); };
 
-    // Help modal wiring — force-closed on init and toggled via icon
+    // Help modal (forced closed on init)
     const helpModal=$('#helpModal');
     helpModal.classList.remove('open'); helpModal.setAttribute('aria-hidden','true');
     function openHelp(){ helpModal.classList.add('open'); helpModal.removeAttribute('aria-hidden'); }
@@ -338,18 +465,29 @@
     helpModal.addEventListener('click', e=>{ if(e.target===helpModal) closeHelp(); });
     document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeHelp(); });
 
-    const muteBtn=$('#muteBtn'), muteIcon=$('#muteIcon'); function applyMuteIcon(){ muteBtn.setAttribute('aria-pressed', String(state.muted)); muteIcon.innerHTML = state.muted ? '<path fill="currentColor" d="M5 9v6h4l5 5V4L9 9H5zm9.59 3 2.12 2.12-1.41 1.41L13.17 13l-2.12 2.12-1.41-1.41L11.76 12 9.64 9.88l1.41-1.41L13.17 10l2.12-2.12 1.41 1.41L14 11.59z"/>' : '<path fill="currentColor" d="M5 9v6h4l5 5V4L9 9H5z"/>'; }
+    const muteBtn=$('#muteBtn'), muteIcon=$('#muteIcon');
+    function applyMuteIcon(){
+      muteBtn.setAttribute('aria-pressed', String(state.muted));
+      muteIcon.innerHTML = state.muted
+        ? '<path fill="currentColor" d="M5 9v6h4l5 5V4L9 9H5zm9.59 3 2.12 2.12-1.41 1.41L13.17 13l-2.12 2.12-1.41-1.41L11.76 12 9.64 9.88l1.41-1.41L13.17 10l2.12-2.12 1.41 1.41L14 11.59z"/>'
+        : '<path fill="currentColor" d="M5 9v6h4l5 5V4L9 9H5z"/>';
+    }
     applyMuteIcon();
-    muteBtn.addEventListener('click', async()=>{ state.muted=!state.muted; applyMuteIcon(); persist(); if(!state.muted){ try{ await audioCtx?.resume(); }catch{} uiTick(); toast('Sound on'); } else { audio.stop(); toast('Muted'); } });
+    muteBtn.addEventListener('click', async()=>{
+      state.muted=!state.muted; applyMuteIcon(); persist();
+      if(!state.muted){ try{ await audioCtx?.resume(); }catch{} uiTick(); toast('Sound on'); }
+      else { audio.stop(); toast('Muted'); }
+    });
 
-    const voiceBtn=$('#voiceBtn'), voiceIcon=$('#voiceIcon'); function applyVoiceIcon(){ voiceBtn.setAttribute('aria-pressed', String(state.voiceEnabled)); voiceIcon.style.opacity = state.voiceEnabled? '1' : '.5'; }
+    const voiceBtn=$('#voiceBtn'), voiceIcon=$('#voiceIcon');
+    function applyVoiceIcon(){ voiceBtn.setAttribute('aria-pressed', String(state.voiceEnabled)); voiceIcon.style.opacity = state.voiceEnabled? '1' : '.5'; }
     applyVoiceIcon();
     voiceBtn.addEventListener('click', ()=>{ state.voiceEnabled = !state.voiceEnabled; applyVoiceIcon(); persist(); toast(state.voiceEnabled? 'Voice on' : 'Voice off'); if(state.voiceEnabled) tts.ensure(); });
 
     /* PWA-lite SW (cache this page) */
     if('serviceWorker' in navigator){
-      const sw=`self.addEventListener('install',e=>{self.skipWaiting(); e.waitUntil(caches.open('hightimer-v4-1').then(c=>c.addAll(['./']))) }); self.addEventListener('activate',e=>self.clients.claim()); self.addEventListener('fetch',e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)))})`;
-      const url=URL.createObjectURL(new Blob([sw],{type:'text/javascript'}));
+      const sw = "self.addEventListener('install',e=>{self.skipWaiting(); e.waitUntil(caches.open('hightimer-v4-2').then(c=>c.addAll(['./']))) }); self.addEventListener('activate',e=>self.clients.claim()); self.addEventListener('fetch',e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)))})";
+      const url = URL.createObjectURL(new Blob([sw], {type:'text/javascript'}));
       navigator.serviceWorker.register(url).catch(()=>{});
     }
 
